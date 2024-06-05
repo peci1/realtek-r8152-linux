@@ -36,6 +36,9 @@
 #include <linux/atomic.h>
 #include <linux/acpi.h>
 #include "compatibility.h"
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6,9,0)
+#include <linux/phy.h>
+#endif
 
 /* Version Information */
 #define DRIVER_VERSION "v2.17.1 (2023/06/13)"
@@ -950,7 +953,10 @@ struct r8152 {
 		void (*up)(struct r8152 *tp);
 		void (*down)(struct r8152 *tp);
 		void (*unload)(struct r8152 *tp);
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(3,6,0)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6,9,0)
+		int (*eee_get)(struct r8152 *tp, struct ethtool_keee *eee);
+		int (*eee_set)(struct r8152 *tp, struct ethtool_keee *eee);
+#elif LINUX_VERSION_CODE >= KERNEL_VERSION(3,6,0)
 		int (*eee_get)(struct r8152 *tp, struct ethtool_eee *eee);
 		int (*eee_set)(struct r8152 *tp, struct ethtool_eee *eee);
 #endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(3,6,0) */
@@ -19099,32 +19105,65 @@ static void rtl8152_get_strings(struct net_device *dev, u32 stringset, u8 *data)
 }
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(3,6,0)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6,9,0)
+static int r8152_get_eee(struct r8152 *tp, struct ethtool_keee *eee)
+#else
 static int r8152_get_eee(struct r8152 *tp, struct ethtool_eee *eee)
+#endif
 {
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6,9,0)
+	__ETHTOOL_DECLARE_LINK_MODE_MASK(common);
+#else
 	u32 lp, adv, supported = 0;
+#endif
 	u16 val;
 
 	val = r8152_mmd_read(tp, MDIO_MMD_PCS, MDIO_PCS_EEE_ABLE);
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6,9,0)
+	mii_eee_cap1_mod_linkmode_t(eee->supported, val);
+#else
 	supported = mmd_eee_cap_to_ethtool_sup_t(val);
+#endif
 
 	val = r8152_mmd_read(tp, MDIO_MMD_AN, MDIO_AN_EEE_ADV);
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6,9,0)
+	mii_eee_cap1_mod_linkmode_t(eee->advertised, val);
+#else
 	adv = mmd_eee_adv_to_ethtool_adv_t(val);
+#endif
 
 	val = r8152_mmd_read(tp, MDIO_MMD_AN, MDIO_AN_EEE_LPABLE);
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6,9,0)
+	mii_eee_cap1_mod_linkmode_t(eee->lp_advertised, val);
+#else
 	lp = mmd_eee_adv_to_ethtool_adv_t(val);
+#endif
 
 	eee->eee_enabled = tp->eee_en;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6,9,0)
+	linkmode_and(common, eee->advertised, eee->lp_advertised);
+	eee->eee_active = phy_check_valid(tp->speed, tp->duplex, common);
+#else
 	eee->eee_active = !!(supported & adv & lp);
-	eee->supported = supported;
-	eee->advertised = tp->eee_adv;
-	eee->lp_advertised = lp;
+        eee->supported = supported;
+        eee->advertised = tp->eee_adv;
+        eee->lp_advertised = lp;
+#endif
 
 	return 0;
 }
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6,9,0)
+static int r8152_set_eee(struct r8152 *tp, struct ethtool_keee *eee)
+#else
 static int r8152_set_eee(struct r8152 *tp, struct ethtool_eee *eee)
+#endif
 {
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6,9,0)
+	u16 val = linkmode_to_mii_eee_cap1_t(eee->advertised);
+#else
 	u16 val = ethtool_adv_to_mmd_eee_adv_t(eee->advertised);
+#endif
 
 	tp->eee_en = eee->eee_enabled;
 	tp->eee_adv = val;
@@ -19134,31 +19173,60 @@ static int r8152_set_eee(struct r8152 *tp, struct ethtool_eee *eee)
 	return 0;
 }
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6,9,0)
+static int r8153_get_eee(struct r8152 *tp, struct ethtool_keee *eee)
+#else
 static int r8153_get_eee(struct r8152 *tp, struct ethtool_eee *eee)
+#endif
 {
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6,9,0)
+	__ETHTOOL_DECLARE_LINK_MODE_MASK(common);
+#else
 	u32 lp, adv, supported = 0;
+#endif
 	u16 val;
 
 	val = ocp_reg_read(tp, OCP_EEE_ABLE);
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6,9,0)
+	mii_eee_cap1_mod_linkmode_t(eee->supported, val);
+#else
 	supported = mmd_eee_cap_to_ethtool_sup_t(val);
+#endif
 
 	val = ocp_reg_read(tp, OCP_EEE_ADV);
-	adv = mmd_eee_adv_to_ethtool_adv_t(val);
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6,9,0)
+	mii_eee_cap1_mod_linkmode_t(eee->advertised, val);
+#else
+        adv = mmd_eee_adv_to_ethtool_adv_t(val);
+#endif
 
 	val = ocp_reg_read(tp, OCP_EEE_LPABLE);
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6,9,0)
+	mii_eee_cap1_mod_linkmode_t(eee->lp_advertised, val);
+#else
 	lp = mmd_eee_adv_to_ethtool_adv_t(val);
+#endif
 
 	eee->eee_enabled = tp->eee_en;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6,9,0)
+	linkmode_and(common, eee->advertised, eee->lp_advertised);
+	eee->eee_active = phy_check_valid(tp->speed, tp->duplex, common);
+#else
 	eee->eee_active = !!(supported & adv & lp);
-	eee->supported = supported;
-	eee->advertised = tp->eee_adv;
-	eee->lp_advertised = lp;
+        eee->supported = supported;
+        eee->advertised = tp->eee_adv;
+        eee->lp_advertised = lp;
+#endif
 
 	return 0;
 }
 
 static int
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6,9,0)
+rtl_ethtool_get_eee(struct net_device *net, struct ethtool_keee *edata)
+#else
 rtl_ethtool_get_eee(struct net_device *net, struct ethtool_eee *edata)
+#endif
 {
 	struct r8152 *tp = netdev_priv(net);
 	int ret;
@@ -19185,7 +19253,11 @@ out:
 }
 
 static int
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6,9,0)
+rtl_ethtool_set_eee(struct net_device *net, struct ethtool_keee *edata)
+#else
 rtl_ethtool_set_eee(struct net_device *net, struct ethtool_eee *edata)
+#endif
 {
 	struct r8152 *tp = netdev_priv(net);
 	int ret;
